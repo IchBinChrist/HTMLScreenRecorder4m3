@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ScreenRecorder</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#141a2e; --accent:#4da3ff; --text:#e9eefb; --muted:#9fb0d0; }
+    *{ box-sizing:border-box; font-family: system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,"Helvetica Neue",Arial,sans-serif;}
+    body{ margin:0; background:var(--bg); color:var(--text); }
+    header{ padding:12px 16px; border-bottom:1px solid #1f2744; display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+    h1{ margin:0; font-size:18px; }
+    .lang{ display:flex; align-items:center; gap:8px;}
+    select{ border:1px solid #2a355a; background:#0f1430; color:var(--text); border-radius:10px; padding:8px 10px; }
+    main{ max-width:960px; margin:16px auto; padding:0 16px; display:grid; gap:16px;}
+    .card{ background:var(--panel); border:1px solid #1f2744; border-radius:14px; padding:14px; }
+    label{ font-size:14px; color:var(--muted); display:block; margin-bottom:6px;}
+    input[type="text"], input[type="number"]{ width:100%; padding:10px 12px; border-radius:10px; border:1px solid #2a355a; background:#0f1430; color:var(--text); }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+    .row > *{ flex:1 1 auto; }
+    button{ appearance:none; border:1px solid #254f87; background:#16325c; color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; font-weight:600; }
+    button:hover{ background:#1a3a6b; }
+    button.secondary{ border-color:#36405f; background:#1a2038; }
+    button.danger{ border-color:#7b2a2a; background:#4a1a1a; }
+    .hint{ font-size:13px; color:var(--muted); }
+    video{ width:100%; max-height:380px; background:#000; border-radius:12px; }
+    .pill{ display:inline-block; padding:6px 10px; border-radius:999px; background:#0e1740; border:1px solid #2a355a; color:var(--muted); font-size:12px; }
+    .status{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .dot{ width:10px; height:10px; border-radius:50%; background:#555; display:inline-block; }
+    .dot.live{ background:#ff4747; box-shadow:0 0 0 6px rgba(255,71,71,.15); }
+    a.download{ color:var(--accent); text-decoration:none; font-weight:600; }
+    .grid{ display:grid; gap:12px; grid-template-columns:1fr 1fr; }
+    @media (max-width:900px){ .grid{ grid-template-columns:1fr; } }
+    .small{ font-size:12px; color:var(--muted); }
+    kbd{ background:#0f1430; border:1px solid #2a355a; border-bottom-width:2px; padding:1px 6px; border-radius:6px; }
+
+    /* Vollbild-Blocker */
+    #blocker {
+      position: fixed; inset: 0;
+      display: none; /* standardmäßig aus */
+      place-items: center;
+      background: var(--bg);
+      z-index: 9999;
+      text-align: center;
+      padding: 24px;
+    }
+    #blocker .panel {
+      max-width: 760px;
+      background: var(--panel);
+      border: 1px solid #1f2744;
+      border-radius: 16px;
+      padding: 20px 18px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    #blocker h2 { margin: 0 0 8px 0; font-size: 18px; }
+    #blocker p { margin: 6px 0; color: var(--muted); }
+    body.blocked header, body.blocked main { display: none !important; }
+  </style>
+</head>
+<body>
+  <!-- Vollbild-Blocker (nur Meldung, nichts anklickbar) -->
+  <div id="blocker" role="alert" aria-live="assertive">
+    <div class="panel">
+      <h2 id="blockTitle">Screen capture not available</h2>
+      <p id="blockMsg">Screen capture isn't supported in this mobile browser. Use the system screen recorder or a desktop browser.</p>
+    </div>
+  </div>
+
+  <header id="topbar">
+    <h1 id="appTitle">ScreenRecorder – Screen/Window/Tab + Microphone (Chrome)</h1>
+    <div class="lang">
+      <label for="langSel" id="langLabel">Language</label>
+      <select id="langSel" aria-label="Language">
+        <option value="en">English</option>
+        <option value="de">Deutsch</option>
+        <option value="fr">Français</option>
+        <option value="es">Español</option>
+      </select>
+    </div>
+  </header>
+
+  <main>
+    <!-- Standard: Screen/Window/Tab -->
+    <section class="card grid">
+      <div>
+        <label id="settingsLbl">Settings</label>
+        <div class="row" role="group" aria-label="Audio options">
+          <label class="pill"><input type="checkbox" id="withMic" checked style="margin-right:6px;"><span id="micLbl">Include microphone</span></label>
+          <label class="pill"><input type="checkbox" id="echoCancel" checked style="margin-right:6px;"><span id="echoLbl">Echo cancellation</span></label>
+          <label class="pill"><input type="checkbox" id="noiseSupp" checked style="margin-right:6px;"><span id="noiseLbl">Noise suppression</span></label>
+          <label class="pill"><input type="number" id="fps" min="1" max="60" value="30" style="width:70px; margin-right:6px;"><span id="fpsLbl" style="margin-left:6px;">FPS</span></label>
+        </div>
+        <p class="hint" id="mainHint" style="margin-top:6px;">
+          Click <em>Start recording</em>, then choose <em>Entire screen</em>, <em>Window</em>, or <em>Tab</em>. Enable <em>Share system audio</em> or <em>Share tab audio</em>. Use headphones to avoid echo.
+        </p>
+
+        <div class="row" style="margin-top:10px;">
+          <button id="startBtn">🎬 <span id="startTxt">Start recording</span></button>
+          <button id="stopBtn" class="danger" disabled>⏹ <span id="stopTxt">Stop recording</span></button>
+          <button id="pauseBtn" class="secondary" disabled>⏸️ <span id="pauseTxt">Pause</span></button>
+          <button id="resumeBtn" class="secondary" disabled>▶️ <span id="resumeTxt">Resume</span></button>
+        </div>
+
+        <div class="status" style="margin-top:12px;">
+          <span id="liveDot" class="dot"></span>
+          <span id="timer" class="pill">00:00</span>
+          <span id="resInfo" class="pill">–</span>
+          <span id="mimeInfo" class="pill">–</span>
+        </div>
+
+        <div id="downloadWrap" style="margin-top:12px; display:none;">
+          <a id="downloadLink" class="download" href="#" download="screenrecording.webm">⬇️ <span id="dlTxt">Download recording</span></a>
+          <span id="sizeInfo" class="small"></span>
+        </div>
+
+        <p id="msg" class="hint" style="margin-top:10px;" aria-live="polite"></p>
+        <p class="small" id="hotkeyTxt">Hotkeys: <kbd>S</kbd> Start/Stop · <kbd>P</kbd> Pause/Resume</p>
+      </div>
+
+      <div>
+        <label id="previewLbl">Live preview</label>
+        <video id="liveVideo" playsinline autoplay muted></video>
+      </div>
+    </section>
+
+    <!-- Option: Webseite in neuem Tab/Fenster öffnen und aufnehmen -->
+    <section class="card">
+      <label for="url" id="openLbl">Optional: Open a webpage in a new tab & then select it in the picker</label>
+      <div class="row">
+        <input id="url" type="text" placeholder="https://example.com or https://www.youtube.com/watch?v=…" />
+        <button id="openAndRecordBtn" class="secondary" style="flex:0 0 auto;"><span id="openBtnTxt">Open page & start recording</span></button>
+      </div>
+      <p class="hint" id="openHint" style="margin-top:6px;">
+        The new tab/window opens first (allow popups), then the picker starts. Select that tab or your entire screen.
+      </p>
+    </section>
+  </main>
+
+  <script>
+    // --- i18n dictionary ---
+    const I18N = {
+      en: {
+        appTitle: "ScreenRecorder – Screen/Window/Tab + Microphone (Chrome)",
+        language: "Language",
+        settings: "Settings",
+        includeMic: "Include microphone",
+        echo: "Echo cancellation",
+        noise: "Noise suppression",
+        fps: "FPS",
+        mainHint: "Click <em>Start recording</em>, then choose <em>Entire screen</em>, <em>Window</em>, or <em>Tab</em>. Enable <em>Share system audio</em> or <em>Share tab audio</em>. Use headphones to avoid echo.",
+        start: "Start recording",
+        stop: "Stop recording",
+        pause: "Pause",
+        resume: "Resume",
+        livePreview: "Live preview",
+        dl: "Download recording",
+        hotkeys: "Hotkeys: <kbd>S</kbd> Start/Stop · <kbd>P</kbd> Pause/Resume",
+        openLbl: "Optional: Open a webpage in a new tab & then select it in the picker",
+        openPlaceholder: "https://example.com or https://www.youtube.com/watch?v=…",
+        openBtn: "Open page & start recording",
+        openHint: "The new tab/window opens first (allow popups), then the picker starts. Select that tab or your entire screen.",
+        msgPicker: "Opening picker… choose Screen/Window/Tab. Enable system/tab audio for sound.",
+        msgPaused: "Recording paused.",
+        msgResumed: "Recording resumed.",
+        msgAborted: "Aborted or blocked: ",
+        msgDone: "Done. File is ready to download.",
+        msgNoData: "No data recorded.",
+        msgNeedURL: "Please enter a URL first.",
+        msgPopupBlocked: "Popup blocked. Allow popups for this page or open the URL manually.",
+        noSupportTitle: "Screen capture not available",
+        noSupport: "This browser doesn't support screen capture here. Please use desktop Chrome/Edge/Firefox/Safari or a native app.",
+        noSupportMobileTitle: "Mobile browser not supported",
+        noSupportMobile: "Screen capture isn't supported in this mobile browser. Use the phone's system screen recorder (Android) or Control Center screen recording (iOS), or switch to a desktop browser."
+      },
+      de: {
+        appTitle: "ScreenRecorder – Bildschirm/Fenster/Tab + Mikrofon (Chrome)",
+        language: "Sprache",
+        settings: "Einstellungen",
+        includeMic: "Mikrofon mit aufnehmen",
+        echo: "Echo-Unterdrückung",
+        noise: "Rauschunterdrückung",
+        fps: "FPS",
+        mainHint: "Klicke <em>Aufnahme starten</em> und wähle <em>Gesamter Bildschirm</em>, <em>Fenster</em> oder <em>Tab</em>. Aktiviere <em>Systemaudio teilen</em> bzw. <em>Tab-Audio teilen</em>. Kopfhörer vermeiden Echo.",
+        start: "Aufnahme starten",
+        stop: "Aufnahme stoppen",
+        pause: "Pausieren",
+        resume: "Fortsetzen",
+        livePreview: "Live-Vorschau",
+        dl: "Aufnahme herunterladen",
+        hotkeys: "Hotkeys: <kbd>S</kbd> Start/Stop · <kbd>P</kbd> Pause/Fortsetzen",
+        openLbl: "Optional: Webseite in neuem Tab öffnen & anschließend im Picker auswählen",
+        openPlaceholder: "https://beispiel.de oder https://www.youtube.com/watch?v=…",
+        openBtn: "Webseite öffnen & Aufnahme starten",
+        openHint: "Der neue Tab/Fenster wird zuerst geöffnet (Popups erlauben), danach startet der Picker. Wähle diesen Tab oder den gesamten Bildschirm.",
+        msgPicker: "Freigabeauswahl wird geöffnet … Bildschirm/Fenster/Tab wählen. Für Ton: System-/Tab-Audio teilen.",
+        msgPaused: "Aufnahme pausiert.",
+        msgResumed: "Aufnahme fortgesetzt.",
+        msgAborted: "Abgebrochen oder blockiert: ",
+        msgDone: "Fertig. Datei ist zum Download bereit.",
+        msgNoData: "Keine Daten aufgezeichnet.",
+        msgNeedURL: "Bitte gib zuerst eine URL ein.",
+        msgPopupBlocked: "Popup blockiert. Erlaube Popups für diese Seite oder öffne die URL manuell.",
+        noSupportTitle: "Bildschirmaufnahme nicht verfügbar",
+        noSupport: "Hier wird Bildschirmaufnahme nicht unterstützt. Bitte Desktop-Chrome/Edge/Firefox/Safari nutzen oder eine native App.",
+        noSupportMobileTitle: "Mobiler Browser nicht unterstützt",
+        noSupportMobile: "Bildschirmaufnahme wird in diesem mobilen Browser nicht unterstützt. Nutze den systemeigenen Screen-Recorder (Android) bzw. die Bildschirmaufnahme im Kontrollzentrum (iOS) oder wechsle zu einem Desktop-Browser."
+      },
+      fr: {
+        appTitle: "ScreenRecorder – Écran/Fenêtre/Onglet + Micro (Chrome)",
+        language: "Langue",
+        settings: "Réglages",
+        includeMic: "Inclure le microphone",
+        echo: "Réduction d’écho",
+        noise: "Réduction du bruit",
+        fps: "FPS",
+        mainHint: "Cliquez sur <em>Démarrer l’enregistrement</em>, puis choisissez <em>Écran entier</em>, <em>Fenêtre</em> ou <em>Onglet</em>. Activez <em>Partager l’audio du système</em> ou <em>Partager l’audio de l’onglet</em>. Utilisez un casque pour éviter l’écho.",
+        start: "Démarrer",
+        stop: "Arrêter",
+        pause: "Pause",
+        resume: "Reprendre",
+        livePreview: "Aperçu en direct",
+        dl: "Télécharger l’enregistrement",
+        hotkeys: "Raccourcis : <kbd>S</kbd> Démarrer/Arrêter · <kbd>P</kbd> Pause/Reprendre",
+        openLbl: "Optionnel : Ouvrir une page web dans un nouvel onglet puis la choisir dans le sélecteur",
+        openPlaceholder: "https://exemple.fr ou https://www.youtube.com/watch?v=…",
+        openBtn: "Ouvrir la page & démarrer",
+        openHint: "Le nouvel onglet/fenêtre s’ouvre d’abord (autoriser les popups), puis le sélecteur démarre. Choisissez cet onglet ou tout l’écran.",
+        msgPicker: "Ouverture du sélecteur… choisissez Écran/Fenêtre/Onglet. Activez l’audio système/onglet.",
+        msgPaused: "Enregistrement en pause.",
+        msgResumed: "Enregistrement repris.",
+        msgAborted: "Annulé ou bloqué : ",
+        msgDone: "Terminé. Le fichier est prêt au téléchargement.",
+        msgNoData: "Aucune donnée enregistrée.",
+        msgNeedURL: "Veuillez d’abord saisir une URL.",
+        msgPopupBlocked: "Popup bloqué. Autorisez les popups ou ouvrez l’URL manuellement.",
+        noSupportTitle: "Capture d’écran indisponible",
+        noSupport: "La capture d’écran n’est pas prise en charge ici. Utilisez Chrome/Edge/Firefox/Safari sur ordinateur ou une application native.",
+        noSupportMobileTitle: "Navigateur mobile non pris en charge",
+        noSupportMobile: "La capture d’écran n’est pas prise en charge sur ce navigateur mobile. Utilisez l’enregistreur d’écran du système (Android) ou du Centre de contrôle (iOS), ou passez à un navigateur sur ordinateur."
+      },
+      es: {
+        appTitle: "ScreenRecorder – Pantalla/Ventana/Pestaña + Micrófono (Chrome)",
+        language: "Idioma",
+        settings: "Ajustes",
+        includeMic: "Incluir micrófono",
+        echo: "Cancelación de eco",
+        noise: "Reducción de ruido",
+        fps: "FPS",
+        mainHint: "Haz clic en <em>Iniciar grabación</em> y elige <em>Toda la pantalla</em>, <em>Ventana</em> o <em>Pestaña</em>. Activa <em>Compartir audio del sistema</em> o <em>Compartir audio de la pestaña</em>. Usa auriculares para evitar eco.",
+        start: "Iniciar grabación",
+        stop: "Detener grabación",
+        pause: "Pausa",
+        resume: "Reanudar",
+        livePreview: "Vista previa en vivo",
+        dl: "Descargar grabación",
+        hotkeys: "Atajos: <kbd>S</kbd> Iniciar/Detener · <kbd>P</kbd> Pausa/Reanudar",
+        openLbl: "Opcional: Abrir una página web en una nueva pestaña y seleccionarla en el selector",
+        openPlaceholder: "https://ejemplo.com o https://www.youtube.com/watch?v=…",
+        openBtn: "Abrir página y grabar",
+        openHint: "La nueva pestaña/ventana se abre primero (permite ventanas emergentes) y luego comienza el selector. Selecciona esa pestaña o toda la pantalla.",
+        msgPicker: "Abriendo el selector… elige Pantalla/Ventana/Pestaña. Activa audio del sistema/pestaña.",
+        msgPaused: "Grabación en pausa.",
+        msgResumed: "Grabación reanudada.",
+        msgAborted: "Cancelado o bloqueado: ",
+        msgDone: "Listo. El archivo está disponible para descargar.",
+        msgNoData: "No se grabaron datos.",
+        msgNeedURL: "Introduce primero una URL.",
+        msgPopupBlocked: "Ventana emergente bloqueada. Permite ventanas emergentes o abre la URL manualmente.",
+        noSupportTitle: "Captura de pantalla no disponible",
+        noSupport: "La captura de pantalla no es compatible aquí. Usa Chrome/Edge/Firefox/Safari en escritorio o una app nativa.",
+        noSupportMobileTitle: "Navegador móvil no compatible",
+        noSupportMobile: "La captura de pantalla no es compatible en este navegador móvil. Usa el grabador de pantalla del sistema (Android) o el del Centro de control (iOS), o cambia a un navegador de escritorio."
+      }
+    };
+
+    const $ = sel => document.querySelector(sel);
+    const logMsg = (t) => $("#msg").innerHTML = t || "";
+
+    // --- language handling ---
+    function detectBrowserLang() {
+      const prefs = (navigator.languages || [navigator.language || navigator.userLanguage || "en"]).map(x => (x || "").toLowerCase());
+      const map = { en:"en", en_us:"en", en_gb:"en", de:"de", de_de:"de", fr:"fr", fr_fr:"fr", es:"es", es_es:"es", es_la:"es", es_mx:"es" };
+      for (const p of prefs) {
+        const key = p.replace("-","_");
+        if (map[key]) return map[key];
+        const base = p.split(/[-_]/)[0];
+        if (["en","de","fr","es"].includes(base)) return base;
+      }
+      return "en";
+    }
+
+    function setLang(lang) {
+      const L = I18N[lang] || I18N.en;
+      document.documentElement.lang = lang;
+      document.title = "ScreenRecorder";
+      $("#appTitle").textContent = L.appTitle;
+      $("#langLabel").textContent = L.language;
+      $("#settingsLbl").textContent = L.settings;
+      $("#micLbl").textContent = L.includeMic;
+      $("#echoLbl").textContent = L.echo;
+      $("#noiseLbl").textContent = L.noise;
+      $("#fpsLbl").textContent = L.fps;
+      $("#mainHint").innerHTML = L.mainHint;
+      $("#startTxt").textContent = L.start;
+      $("#stopTxt").textContent = L.stop;
+      $("#pauseTxt").textContent = L.pause;
+      $("#resumeTxt").textContent = L.resume;
+      $("#previewLbl").textContent = L.livePreview;
+      $("#dlTxt").textContent = L.dl;
+      $("#hotkeyTxt").innerHTML = L.hotkeys;
+      $("#openLbl").textContent = L.openLbl;
+      $("#url").placeholder = L.openPlaceholder;
+      $("#openBtnTxt").textContent = L.openBtn;
+      $("#openHint").textContent = L.openHint;
+      $("#blockTitle").textContent = isMobileUA() ? L.noSupportMobileTitle : L.noSupportTitle;
+      $("#blockMsg").textContent = isMobileUA() ? L.noSupportMobile : L.noSupport;
+
+      localStorage.setItem("screenrecorder.lang", lang);
+      window._L = L;
+
+      // Block/Unblock UI je nach Plattform/Support neu anwenden
+      applyBlockingIfNeeded();
+    }
+
+    (function initLanguage(){
+      const saved = localStorage.getItem("screenrecorder.lang");
+      const initial = saved || detectBrowserLang() || "en";
+      $("#langSel").value = initial;
+      setLang(initial);
+      $("#langSel").addEventListener("change", e => setLang(e.target.value));
+    })();
+
+    // --- support detection & full-screen blocking ---
+    function isMobileUA() {
+      const ua = (navigator.userAgent || "").toLowerCase();
+      return /android|iphone|ipad|ipod|mobile|silk|kindle|opera mini|opera mobi|iemobile|wpdesktop/.test(ua);
+    }
+    function captureSupported() {
+      return ('mediaDevices' in navigator) && ('getDisplayMedia' in navigator.mediaDevices);
+    }
+    function showBlock() {
+      document.body.classList.add("blocked");
+      $("#blocker").style.display = "grid";
+    }
+    function hideBlock() {
+      $("#blocker").style.display = "none";
+      document.body.classList.remove("blocked");
+    }
+    function applyBlockingIfNeeded() {
+      const L = window._L || I18N.en;
+      // Auf mobilen Browsern IMMER blocken (nur Meldung anzeigen).
+      if (isMobileUA()) {
+        $("#blockTitle").textContent = L.noSupportMobileTitle;
+        $("#blockMsg").textContent = L.noSupportMobile;
+        showBlock();
+        return;
+      }
+      // Auf Desktop: blocken, wenn Capture nicht unterstützt wird.
+      if (!captureSupported()) {
+        $("#blockTitle").textContent = L.noSupportTitle;
+        $("#blockMsg").textContent = L.noSupport;
+        showBlock();
+      } else {
+        hideBlock();
+      }
+    }
+
+    // --- recorder logic ---
+    let displayStream = null;
+    let micStream = null;
+    let mixedStream = null;
+    let mediaRecorder = null;
+    let chunks = [];
+    let timerInterval = null;
+    let startTs = 0;
+    let audioCtx = null;
+
+    const liveVideo = $("#liveVideo");
+    const startBtn = $("#startBtn");
+    const stopBtn = $("#stopBtn");
+    const pauseBtn = $("#pauseBtn");
+    const resumeBtn = $("#resumeBtn");
+    const liveDot = $("#liveDot");
+    const timer = $("#timer");
+    const resInfo = $("#resInfo");
+    const mimeInfo = $("#mimeInfo");
+    const downloadWrap = $("#downloadWrap");
+    const downloadLink = $("#downloadLink");
+    const sizeInfo = $("#sizeInfo");
+    const urlInput = $("#url");
+    const openAndRecordBtn = $("#openAndRecordBtn");
+
+    function setButtons(state){
+      const rec = state === "recording";
+      const paused = state === "paused";
+      startBtn.disabled = rec || paused;
+      stopBtn.disabled = !rec && !paused;
+      pauseBtn.disabled = !rec;
+      resumeBtn.disabled = !paused;
+    }
+    function setLive(on){ liveDot.classList.toggle("live", !!on); }
+    function fmtTime(ms){
+      const s = Math.floor(ms/1000);
+      const mm = String(Math.floor(s/60)).padStart(2,'0');
+      const ss = String(s%60).padStart(2,'0');
+      return `${mm}:${ss}`;
+    }
+
+    async function startCapture(){
+      logMsg(window._L.msgPicker);
+      downloadWrap.style.display = "none";
+      chunks = [];
+
+      const fps = Math.max(1, Math.min(60, parseInt($("#fps").value || "30", 10)));
+      const wantMic = $("#withMic").checked;
+      const echo = $("#echoCancel").checked;
+      const noise = $("#noiseSupp").checked;
+
+      try {
+        // 1) Anzeige (Bildschirm/Fenster/Tab) inkl. möglichem System-/Tab-Audio
+        displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: { ideal: fps, max: fps } },
+          audio: true
+        });
+
+        const vTrack = displayStream.getVideoTracks()[0];
+        if (!vTrack) throw new Error("No video track from getDisplayMedia.");
+        vTrack.addEventListener('ended', () => { stopCapture(); });
+
+        // 2) Optional Mikrofon
+        if (wantMic) {
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: echo, noiseSuppression: noise, autoGainControl: true }
+          });
+        }
+
+        // 3) Audio mischen
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const dest = audioCtx.createMediaStreamDestination();
+
+        const displayHasAudio = displayStream.getAudioTracks().length > 0;
+        if (displayHasAudio) {
+          const onlyAudio = new MediaStream();
+          onlyAudio.addTrack(displayStream.getAudioTracks()[0]);
+          const dispSource = audioCtx.createMediaStreamSource(onlyAudio);
+          dispSource.connect(dest);
+        }
+        if (micStream) {
+          const micSource = audioCtx.createMediaStreamSource(micStream);
+          micSource.connect(dest);
+        }
+
+        // 4) Gemischter Stream
+        mixedStream = new MediaStream();
+        mixedStream.addTrack(vTrack);
+        const mixedAudioTrack = dest.stream.getAudioTracks()[0];
+        if (mixedAudioTrack) mixedStream.addTrack(mixedAudioTrack);
+
+        // 5) Vorschau
+        liveVideo.srcObject = mixedStream;
+
+        // 6) Recorder
+        const mimeCandidates = [
+          "video/webm;codecs=vp9,opus",
+          "video/webm;codecs=vp8,opus",
+          "video/webm;codecs=vp8",
+          "video/webm"
+        ];
+        const mime = mimeCandidates.find(t => MediaRecorder.isTypeSupported(t)) || "";
+        mimeInfo.textContent = mime || "video/webm";
+        mediaRecorder = new MediaRecorder(mixedStream, mime ? { mimeType: mime } : undefined);
+        mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        mediaRecorder.onstop = handleStop;
+
+        mediaRecorder.start(1000);
+        startTs = performance.now();
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => { timer.textContent = fmtTime(performance.now() - startTs); }, 250);
+
+        setTimeout(() => {
+          const s = vTrack.getSettings?.() || {};
+          resInfo.textContent = (s.width && s.height) ? `${s.width}×${s.height} @${s.frameRate||fps}fps` : "…";
+        }, 300);
+
+        setLive(true);
+        setButtons("recording");
+      } catch (err) {
+        console.error(err);
+        logMsg((window._L.msgAborted || "Aborted: ") + (err && err.message ? err.message : String(err)));
+        cleanup();
+      }
+    }
+
+    function pauseCapture(){
+      if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.pause();
+        setButtons("paused");
+        setLive(false);
+        logMsg(window._L.msgPaused);
+      }
+    }
+    function resumeCapture(){
+      if (mediaRecorder && mediaRecorder.state === "paused") {
+        mediaRecorder.resume();
+        setButtons("recording");
+        setLive(true);
+        logMsg(window._L.msgResumed);
+      }
+    }
+    function stopCapture(){
+      try{ if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop(); } catch{}
+      handleStop();
+    }
+    function handleStop(){
+      clearInterval(timerInterval);
+      setLive(false);
+      setButtons("idle");
+
+      if (chunks.length) {
+        const type = (mediaRecorder && mediaRecorder.mimeType) || "video/webm";
+        const blob = new Blob(chunks, { type });
+        const url = URL.createObjectURL(blob);
+        const ts = new Date().toISOString().replace(/[:.]/g,'-');
+        downloadLink.href = url;
+        downloadLink.download = `screenrecording-${ts}.webm`;
+        sizeInfo.textContent = ` (${(blob.size/1048576).toFixed(1)} MB)`;
+        downloadWrap.style.display = "block";
+        logMsg(window._L.msgDone);
+      } else {
+        logMsg(window._L.msgNoData);
+      }
+      cleanup();
+    }
+    function cleanup(){
+      try{ liveVideo.srcObject = null; }catch{}
+      try{ displayStream && displayStream.getTracks().forEach(t=>t.stop()); }catch{}
+      try{ micStream && micStream.getTracks().forEach(t=>t.stop()); }catch{}
+      displayStream = micStream = mixedStream = null;
+      try{ audioCtx && audioCtx.close(); }catch{}
+      audioCtx = null;
+      resInfo.textContent = "–";
+      startBtn.disabled = false; stopBtn.disabled = true; pauseBtn.disabled = true; resumeBtn.disabled = true;
+    }
+
+    // Buttons
+    $("#startBtn").addEventListener("click", startCapture);
+    $("#stopBtn").addEventListener("click", stopCapture);
+    $("#pauseBtn").addEventListener("click", pauseCapture);
+    $("#resumeBtn").addEventListener("click", resumeCapture);
+
+    // Webseite öffnen & dann Aufnahme
+    $("#openAndRecordBtn").addEventListener("click", () => {
+      const u = $("#url").value.trim();
+      if (!u) { logMsg(window._L.msgNeedURL); return; }
+      const win = window.open(u, "_blank", "noopener,noreferrer");
+      if (!win) { logMsg(window._L.msgPopupBlocked); }
+      setTimeout(() => startCapture(), 350);
+    });
+
+    // Hotkeys
+    window.addEventListener("keydown", (e) => {
+      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+      if (e.key.toLowerCase() === "s") {
+        if (!startBtn.disabled) startCapture(); else stopCapture();
+      } else if (e.key.toLowerCase() === "p") {
+        if (!$("#pauseBtn").disabled) pauseCapture(); else if (!$("#resumeBtn").disabled) resumeCapture();
+      }
+    });
+
+    // Init: Sprache & Blocker anwenden
+    applyBlockingIfNeeded();
+
+    // Fallback für deaktiviertes JS
+  </script>
+  <noscript>
+    <style>#topbar,main{display:none!important}#blocker{display:grid}</style>
+    <div id="blocker" role="alert" aria-live="assertive" style="position:fixed;inset:0;display:grid;place-items:center;background:#0b1020;z-index:9999;color:#e9eefb;">
+      <div class="panel" style="max-width:760px;background:#141a2e;border:1px solid #1f2744;border-radius:16px;padding:20px 18px;">
+        <h2>JavaScript required</h2>
+        <p>Please enable JavaScript to use this page.</p>
+      </div>
+    </div>
+  </noscript>
+</body>
+</html>
