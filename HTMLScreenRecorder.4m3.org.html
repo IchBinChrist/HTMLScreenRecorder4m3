@@ -4,8 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>ScreenRecorder</title>
-  <!-- Bootstrap CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+ 
   <style>
     /* Zusätzliche Styles für Blocker und Status-Elemente */
     #blocker {
@@ -36,6 +35,9 @@
     .hint { font-size:13px; color:#9fb0d0; }
     .small { font-size:12px; color:#9fb0d0; }
     video { width:100%; max-height:380px; background:#000; border-radius:12px; }
+
+    /* Hide action buttons when they are not active (disabled) */
+    .btn[disabled], button[disabled] { display: none !important; }
   </style>
   <!-- Bootstrap JS (optional, für Komponenten wie Modal) -->
 <script>
@@ -79,7 +81,7 @@
         <div class="col-md-6">
           <label id="settingsLbl" class="form-label fw-bold mb-2">Settings</label>
           <div class="d-flex flex-wrap gap-2 mb-3" role="group" aria-label="Audio options">
-            <div class="form-check form-switch">
+            <div class="form-check form-switch" style="display:none;">
               <input class="form-check-input" type="checkbox" id="withMic" checked>
               <label class="form-check-label" for="withMic" id="micLbl">Include microphone</label>
             </div>
@@ -121,6 +123,13 @@
         <div class="col-md-6">
           <label id="previewLbl" class="form-label fw-bold mb-2">Live preview</label>
           <video id="liveVideo" playsinline autoplay muted class="w-100"></video>
+          <div id="previewWrap" style="display:none;" class="mt-2">
+            <label id="recordingPreviewLbl" class="form-label fw-bold mb-2">Recording preview</label>
+            <video id="previewVideo" controls playsinline class="w-100"></video>
+            <div class="mt-2">
+              <button id="closePreviewBtn" class="btn btn-outline-secondary btn-sm">Close preview</button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -143,6 +152,8 @@
       en: {
         appTitle: "ScreenRecorder – Screen/Window/Tab + Microphone (Chrome)",
         language: "Language",
+        recordingPreview: "Recording preview",
+        closePreview: "Close preview",
         settings: "Settings",
         includeMic: "Include microphone",
         echo: "Echo cancellation",
@@ -176,7 +187,9 @@
       de: {
         appTitle: "ScreenRecorder – Bildschirm/Fenster/Tab + Mikrofon (Chrome)",
         language: "Sprache",
-        settings: "Einstellungen",
+        recordingPreview: "Aufnahme-Vorschau",
+        closePreview: "Vorschau schließen",
+         settings: "Einstellungen",
         includeMic: "Mikrofon mit aufnehmen",
         echo: "Echo-Unterdrückung",
         noise: "Rauschunterdrückung",
@@ -209,6 +222,8 @@
       fr: {
         appTitle: "ScreenRecorder – Écran/Fenêtre/Onglet + Micro (Chrome)",
         language: "Langue",
+        recordingPreview: "Aperçu de l'enregistrement",
+        closePreview: "Fermer l'aperçu",
         settings: "Réglages",
         includeMic: "Inclure le microphone",
         echo: "Réduction d’écho",
@@ -242,6 +257,8 @@
       es: {
         appTitle: "ScreenRecorder – Pantalla/Ventana/Pestaña + Micrófono (Chrome)",
         language: "Idioma",
+        recordingPreview: "Vista previa de la grabación",
+        closePreview: "Cerrar vista previa",
         settings: "Ajustes",
         includeMic: "Incluir micrófono",
         echo: "Cancelación de eco",
@@ -307,6 +324,8 @@
       $("#pauseTxt").textContent = L.pause;
       $("#resumeTxt").textContent = L.resume;
       $("#previewLbl").textContent = L.livePreview;
+      $('#recordingPreviewLbl').textContent = L.recordingPreview;
+      $('#closePreviewBtn').textContent = L.closePreview;
       $("#dlTxt").textContent = L.dl;
       $("#hotkeyTxt").innerHTML = L.hotkeys;
       $("#openLbl").textContent = L.openLbl;
@@ -391,6 +410,12 @@
     const urlInput = $("#url");
     const openAndRecordBtn = $("#openAndRecordBtn");
 
+    // Preview elements and URL for the recorded file
+    const previewWrap = $("#previewWrap");
+    const previewVideo = $("#previewVideo");
+    const closePreviewBtn = $("#closePreviewBtn");
+    let previewUrl = null;
+
     function setButtons(state){
       const rec = state === "recording";
       const paused = state === "paused";
@@ -409,6 +434,13 @@
 
     async function startCapture(){
       logMsg(window._L.msgPicker);
+      // Ensure recorded preview is hidden when starting a new capture
+      try {
+        if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+      } catch (e) {}
+      if (previewVideo) try{ previewVideo.src = ''; }catch{};
+      if (previewWrap) previewWrap.style.display = 'none';
+      if (liveVideo) liveVideo.style.display = 'block';
       downloadWrap.style.display = "none";
       chunks = [];
 
@@ -526,6 +558,25 @@
         downloadLink.download = `screenrecording-${ts}.webm`;
         sizeInfo.textContent = ` (${(blob.size/1048576).toFixed(1)} MB)`;
         downloadWrap.style.display = "block";
+
+        // --- Show inline preview of the recorded blob ---
+        previewUrl = url;
+        try {
+          //if (previewVideo) {
+            previewVideo.src = url;
+            previewVideo.controls = true;
+            // show preview container
+            if (previewWrap){
+              previewWrap.style.display = 'block';
+              liveVideo.style.display = 'none';
+            } 
+
+            // try to autoplay preview (may be blocked by browser autoplay policies)
+            previewVideo.currentTime = 0;
+            //previewVideo.play().catch(()=>{});
+          //}
+        } catch (err) { console.warn('preview error', err); }
+
         logMsg(window._L.msgDone);
       } else {
         logMsg(window._L.msgNoData);
@@ -541,6 +592,9 @@
       audioCtx = null;
       resInfo.textContent = "–";
       startBtn.disabled = false; stopBtn.disabled = true; pauseBtn.disabled = true; resumeBtn.disabled = true;
+      // ensure preview hidden and live preview element visible after cleanup
+      //if (previewWrap) previewWrap.style.display = 'none';
+      //if (liveVideo) liveVideo.style.display = 'block';
     }
 
     // Buttons
@@ -548,6 +602,18 @@
     $("#stopBtn").addEventListener("click", stopCapture);
     $("#pauseBtn").addEventListener("click", pauseCapture);
     $("#resumeBtn").addEventListener("click", resumeCapture);
+
+    // Close preview and release resources
+    if (closePreviewBtn) {
+      closePreviewBtn.addEventListener('click', () => {
+        try{ previewVideo.pause(); }catch{};
+        previewVideo.src = '';
+        if (previewWrap) { previewWrap.style.display = 'none'; previewWrap.classList.remove('show-preview'); }
+        // restore live preview element (no stream attached if not recording)
+        if (liveVideo) { liveVideo.style.display = 'block'; liveVideo.classList.remove('hide-live'); }
+        if (previewUrl) { try{ URL.revokeObjectURL(previewUrl); }catch{} previewUrl = null; }
+      });
+    }
 
     // Webseite öffnen & dann Aufnahme
     $("#openAndRecordBtn").addEventListener("click", () => {
